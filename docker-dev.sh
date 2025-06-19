@@ -39,6 +39,23 @@ case "$1" in
         docker compose exec web pytest tests/ "${@:2}"
         ;;
     
+    "proxy-health")
+        echo "🏥 Running proxy health check (10 proxies)..."
+        docker compose exec web python tests/test_proxy_health.py
+        ;;
+    
+    "proxy-health-full")
+        echo "🏥 Running FULL proxy health check (25 proxies)..."
+        docker compose exec web python tests/test_proxy_health.py --full
+        ;;
+    
+    "proxy-health-custom")
+        echo "🏥 Running custom proxy health check..."
+        echo "   Sample size: ${2:-10} proxies"
+        echo "   Workers: ${3:-5}"
+        docker compose exec web python tests/test_proxy_health.py --sample "${2:-10}" --workers "${3:-5}"
+        ;;
+    
     "test-all")
         echo "🧪 Running ALL tests..."
         echo -e "\n1. Quick test:"
@@ -74,6 +91,9 @@ case "$1" in
         echo "  test       - Run quick test"
         echo "  test-full  - Run integration test"
         echo "  pytest     - Run pytest (can add args)"
+        echo "  proxy-health      - Test proxy health (10 proxies)"
+        echo "  proxy-health-full - Test proxy health (25 proxies)"
+        echo "  proxy-health-custom - Test with custom params"
         echo "  test-all   - Run ALL tests"
         echo "  rebuild    - Rebuild containers"
         echo "  clean      - Remove everything"

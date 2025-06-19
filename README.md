@@ -67,7 +67,7 @@ Una API REST robusta construida con Django para extraer subtítulos de videos de
 | `USE_PROXY` | Habilitar rotación de proxies | `False` | No |
 | `WEBSHARE_PROXY_USERNAME` | Usuario del proxy | - | Si USE_PROXY=True |
 | `WEBSHARE_PROXY_PASSWORD` | Contraseña del proxy | - | Si USE_PROXY=True |
-| `WEBSHARE_PROXY_LIST` | Lista de proxies separados por comas | - | Si USE_PROXY=True |
+| `WEBSHARE_API_TOKEN` | Token de webshare | - | Si USE_PROXY=True |
 
 ## 📡 Endpoints de la API
 
@@ -141,6 +141,36 @@ Content-Type: application/json
 }
 ```
 
+
+## 📖 Documentación Interactiva
+La API incluye documentación interactiva con Swagger UI:
+
+Swagger UI: http://localhost:8000/swagger/
+
+Desde Swagger puedes:
+
+Ver todos los endpoints disponibles
+Probar las llamadas directamente desde el navegador
+Ver ejemplos de requests y responses
+Descargar la especificación OpenAPI
+
+## 🌐 Soporte de Proxies
+La API incluye un sistema avanzado de gestión de proxies para evitar límites de tasa:
+
+Rotación inteligente con algoritmo LRU
++215,000 proxies residenciales disponibles
+Blacklist temporal automática
+Recuperación automática de proxies fallidos
+
+Para más detalles sobre la implementación, ver PROXY_MANAGER.md.
+Configuración básica:
+bashUSE_PROXY=True
+WEBSHARE_API_TOKEN=tu_token_aqui
+Monitoreo de salud:
+bash# Test rápido de proxies
+./docker-dev.sh proxy-health
+
+
 ## 🧪 Pruebas
 
 ### Prueba Rápida
@@ -157,6 +187,16 @@ Content-Type: application/json
 ```bash
 ./docker-dev.sh test-full
 ```
+
+### Pruebas de Salud de Proxies
+```bash
+./docker-dev.sh proxy-health # 10 proxies
+
+./docker-dev.sh proxy-health-full # 25 proxies
+
+./docker-dev.sh proxy-health-custom [number of proxies] [number of workers to test] # custom proxies
+```
+
 
 ## 🐳 Comandos Docker
 

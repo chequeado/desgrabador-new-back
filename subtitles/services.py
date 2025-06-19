@@ -10,6 +10,25 @@ import os
 import random
 import time
 
+import logging
+from .proxy_manager import ProxyManager, WebshareProxyProvider, EnvProxyProvider
+
+logger = logging.getLogger('subtitles')
+
+proxy_manager = None
+if os.getenv('USE_PROXY', 'False') == 'True':
+    # Decidir qué provider usar
+    webshare_token = os.getenv('WEBSHARE_API_TOKEN')
+    
+    if webshare_token:
+        logger.info("Initializing ProxyManager with WebshareProxyProvider")
+        provider = WebshareProxyProvider(webshare_token)
+    else:
+        logger.info("Initializing ProxyManager with EnvProxyProvider (legacy)")
+        provider = EnvProxyProvider()
+    
+    proxy_manager = ProxyManager(provider)
+
 def extract_video_id(url):
     """
     Extrae el ID del video de una URL de YouTube
@@ -119,7 +138,17 @@ def get_available_languages(video_url):
             'error': f'Error getting languages: {type(e).__name__}',
             'details': str(e)
         }
-
+    
+def get_proxy_with_manager():
+    """
+    Obtiene proxy usando el nuevo ProxyManager
+    Returns: Tupla (proxy_dict, proxy_id) o (None, None)
+    """
+    if proxy_manager:
+        result = proxy_manager.get_proxy()
+        if result:
+            return result
+    return None, None
 def get_subtitles(video_url, language_code=None):
     """
     Obtiene los subtítulos de un video de YouTube con reintentos
@@ -137,21 +166,34 @@ def get_subtitles(video_url, language_code=None):
     for attempt in range(max_retries):
         try:
             if use_proxy:
-                try:
-                    proxy_result = get_proxy_config(exclude_proxies=failed_proxies)
+                # NUEVO: Intentar usar ProxyManager primero
+                if proxy_manager:
+                    proxy_result = proxy_manager.get_proxy()
                     if proxy_result:
                         proxies, current_proxy = proxy_result
-                        print(f"Attempt {attempt + 1} with proxy {current_proxy}")
+                        print(f"Attempt {attempt + 1} with proxy {current_proxy} (via ProxyManager)")
                     else:
-                        # Esto no debería pasar ahora, pero por si acaso
-                        proxies = None
-                        current_proxy = None
-                except ValueError as e:
-                    return {
-                        'error': 'Proxy configuration error',
-                        'details': str(e),
-                        'attempts': attempt + 1
-                    }
+                        return {
+                            'error': 'No proxies available',
+                            'details': 'All proxies are blacklisted or unavailable',
+                            'attempts': attempt + 1
+                        }
+                else:
+                    # FALLBACK: Usar método antiguo si no hay ProxyManager
+                    try:
+                        proxy_result = get_proxy_config(exclude_proxies=failed_proxies)
+                        if proxy_result:
+                            proxies, current_proxy = proxy_result
+                            print(f"Attempt {attempt + 1} with proxy {current_proxy} (legacy method)")
+                        else:
+                            proxies = None
+                            current_proxy = None
+                    except ValueError as e:
+                        return {
+                            'error': 'Proxy configuration error',
+                            'details': str(e),
+                            'attempts': attempt + 1
+                        }
             else:
                 proxies = None
                 current_proxy = None
@@ -175,6 +217,10 @@ def get_subtitles(video_url, language_code=None):
                 last_item = transcript[-1]
                 total_duration = last_item['start'] + last_item.get('duration', 0)
             
+            # NUEVO: Reportar éxito al ProxyManager
+            if proxy_manager and current_proxy:
+                proxy_manager.report_success(current_proxy)
+            
             return {
                 'video_id': video_id,
                 'subtitles': transcript,
@@ -188,7 +234,12 @@ def get_subtitles(video_url, language_code=None):
         except YouTubeRequestFailed as e:
             if "429" in str(e) or "Too Many Requests" in str(e):
                 print(f"Rate limited on attempt {attempt + 1}")
-                if current_proxy:
+                
+                # NUEVO: Reportar rate limit al ProxyManager
+                if proxy_manager and current_proxy:
+                    proxy_manager.report_failure(current_proxy, is_rate_limit=True)
+                elif current_proxy:
+                    # Método antiguo
                     failed_proxies.append(current_proxy)
                     print(f"Marked proxy {current_proxy} as failed")
                 
@@ -204,6 +255,10 @@ def get_subtitles(video_url, language_code=None):
                         'attempts': attempt + 1
                     }
             else:
+                # NUEVO: Reportar fallo general al ProxyManager
+                if proxy_manager and current_proxy:
+                    proxy_manager.report_failure(current_proxy, is_rate_limit=False)
+                
                 return {
                     'error': f'YouTube request failed: {type(e).__name__}',
                     'details': str(e),
@@ -214,7 +269,6 @@ def get_subtitles(video_url, language_code=None):
             return {'error': 'Subtitles are disabled for this video'}
                 
         except NoTranscriptFound:
-            # Si se especificó un idioma, dar más info
             if language_code:
                 return {
                     'error': f'No transcript found for language code: {language_code}',
@@ -226,6 +280,10 @@ def get_subtitles(video_url, language_code=None):
             return {'error': 'Video is unavailable'}
             
         except Exception as e:
+            # NUEVO: Reportar fallo general
+            if proxy_manager and current_proxy:
+                proxy_manager.report_failure(current_proxy, is_rate_limit=False)
+                
             return {
                 'error': f'Unexpected error: {type(e).__name__}',
                 'details': str(e),

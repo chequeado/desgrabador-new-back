@@ -5,29 +5,39 @@ from youtube_transcript_api._errors import (
     VideoUnavailable,
     YouTubeRequestFailed
 )
+from youtube_transcript_api.proxies import WebshareProxyConfig
 import re
 import os
-import random
-import time
-
 import logging
-from .proxy_manager import ProxyManager, WebshareProxyProvider, EnvProxyProvider
 
 logger = logging.getLogger('subtitles')
 
-proxy_manager = None
-if os.getenv('USE_PROXY', 'False') == 'True':
-    # Decidir qué provider usar
-    webshare_token = os.getenv('WEBSHARE_API_TOKEN')
-    
-    if webshare_token:
-        logger.info("Initializing ProxyManager with WebshareProxyProvider")
-        provider = WebshareProxyProvider(webshare_token)
+# Inicializar YouTubeTranscriptApi con o sin proxies según configuración
+def get_youtube_api():
+    """
+    Obtiene una instancia de YouTubeTranscriptApi configurada según USE_PROXY
+    """
+    if os.getenv('USE_PROXY', 'False') == 'True':
+        username = os.getenv('WEBSHARE_PROXY_USERNAME')
+        password = os.getenv('WEBSHARE_PROXY_PASSWORD')
+        
+        if not username or not password:
+            logger.error("USE_PROXY=True but WEBSHARE_PROXY_USERNAME or WEBSHARE_PROXY_PASSWORD not set")
+            raise ValueError("Proxy credentials missing. Set WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD")
+        
+        logger.info("Using Webshare proxies")
+        return YouTubeTranscriptApi(
+            proxy_config=WebshareProxyConfig(
+                proxy_username=username,
+                proxy_password=password,
+            )
+        )
     else:
-        logger.info("Initializing ProxyManager with EnvProxyProvider (legacy)")
-        provider = EnvProxyProvider()
-    
-    proxy_manager = ProxyManager(provider)
+        logger.info("Using direct connection (no proxy)")
+        return YouTubeTranscriptApi()
+
+# Instancia global del API
+youtube_api = get_youtube_api()
 
 def extract_video_id(url):
     """
@@ -38,51 +48,6 @@ def extract_video_id(url):
     if match:
         return match.group(1)
     return None
-
-def get_all_proxies():
-    """
-    Obtiene todos los proxies disponibles
-    """
-    proxy_list = os.getenv('WEBSHARE_PROXY_LIST', '')
-    if not proxy_list:
-        return []
-    
-    return [p.strip() for p in proxy_list.split(',') if p.strip()]
-
-def get_proxy_config(exclude_proxies=None):
-    """
-    Construye la configuración del proxy desde las variables de entorno
-    """
-    if os.getenv('USE_PROXY', 'False') != 'True':
-        return None
-    
-    # Si USE_PROXY=True, DEBE usar proxies o fallar
-    username = os.getenv('WEBSHARE_PROXY_USERNAME')
-    password = os.getenv('WEBSHARE_PROXY_PASSWORD')
-    
-    if not all([username, password]):
-        raise ValueError("USE_PROXY=True but proxy credentials are missing. Set WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD")
-    
-    all_proxies = get_all_proxies()
-    if not all_proxies:
-        raise ValueError("USE_PROXY=True but no proxies found in WEBSHARE_PROXY_LIST")
-    
-    if exclude_proxies:
-        available_proxies = [p for p in all_proxies if p not in exclude_proxies]
-    else:
-        available_proxies = all_proxies
-    
-    if not available_proxies:
-        raise ValueError("All proxies have been excluded/failed")
-    
-    selected_proxy = random.choice(available_proxies)
-    print(f"Selected proxy: {selected_proxy}")
-    
-    proxy_url = f"http://{username}:{password}@{selected_proxy}"
-    return {
-        "http": proxy_url,
-        "https": proxy_url
-    }, selected_proxy
 
 def get_available_languages(video_url):
     """
@@ -95,19 +60,7 @@ def get_available_languages(video_url):
     use_proxy = os.getenv('USE_PROXY', 'False') == 'True'
     
     try:
-        proxies = None
-        if use_proxy:
-            try:
-                proxy_result = get_proxy_config()
-                if proxy_result:
-                    proxies, _ = proxy_result
-            except ValueError as e:
-                return {
-                    'error': 'Proxy configuration error',
-                    'details': str(e)
-                }
-        
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxies)
+        transcript_list = youtube_api.list_transcripts(video_id)
         
         languages = []
         for transcript in transcript_list:
@@ -126,7 +79,7 @@ def get_available_languages(video_url):
             'video_id': video_id,
             'languages': languages,
             'total': len(languages),
-            'proxy_used': bool(proxies)
+            'proxy_used': use_proxy
         }
         
     except TranscriptsDisabled:
@@ -138,154 +91,79 @@ def get_available_languages(video_url):
             'error': f'Error getting languages: {type(e).__name__}',
             'details': str(e)
         }
-    
-def get_proxy_with_manager():
-    """
-    Obtiene proxy usando el nuevo ProxyManager
-    Returns: Tupla (proxy_dict, proxy_id) o (None, None)
-    """
-    if proxy_manager:
-        result = proxy_manager.get_proxy()
-        if result:
-            return result
-    return None, None
+
 def get_subtitles(video_url, language_code=None):
     """
-    Obtiene los subtítulos de un video de YouTube con reintentos
+    Obtiene los subtítulos de un video de YouTube
     """
     video_id = extract_video_id(video_url)
     if not video_id:
         return {'error': 'Invalid YouTube URL'}
     
     use_proxy = os.getenv('USE_PROXY', 'False') == 'True'
-    print(f"USE_PROXY setting: {os.getenv('USE_PROXY')} -> using proxy: {use_proxy}")
+    logger.info(f"Getting subtitles for video {video_id}, proxy enabled: {use_proxy}")
     
-    failed_proxies = []
-    max_retries = 3 if use_proxy else 1
-    
-    for attempt in range(max_retries):
-        try:
-            if use_proxy:
-                # NUEVO: Intentar usar ProxyManager primero
-                if proxy_manager:
-                    proxy_result = proxy_manager.get_proxy()
-                    if proxy_result:
-                        proxies, current_proxy = proxy_result
-                        print(f"Attempt {attempt + 1} with proxy {current_proxy} (via ProxyManager)")
-                    else:
-                        return {
-                            'error': 'No proxies available',
-                            'details': 'All proxies are blacklisted or unavailable',
-                            'attempts': attempt + 1
-                        }
-                else:
-                    # FALLBACK: Usar método antiguo si no hay ProxyManager
-                    try:
-                        proxy_result = get_proxy_config(exclude_proxies=failed_proxies)
-                        if proxy_result:
-                            proxies, current_proxy = proxy_result
-                            print(f"Attempt {attempt + 1} with proxy {current_proxy} (legacy method)")
-                        else:
-                            proxies = None
-                            current_proxy = None
-                    except ValueError as e:
-                        return {
-                            'error': 'Proxy configuration error',
-                            'details': str(e),
-                            'attempts': attempt + 1
-                        }
-            else:
-                proxies = None
-                current_proxy = None
-                print(f"Attempt {attempt + 1} WITHOUT proxy (direct connection)")
-            
-            # Obtener transcripción
-            if language_code:
-                print(f"Requesting subtitles in language: {language_code}")
-                transcript = YouTubeTranscriptApi.get_transcript(
-                    video_id, 
-                    languages=[language_code],
-                    proxies=proxies
-                )
-            else:
-                print("Requesting subtitles in default language")
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, proxies=proxies)
-            
-            # Calcular duración total
-            total_duration = 0
-            if transcript:
-                last_item = transcript[-1]
-                total_duration = last_item['start'] + last_item.get('duration', 0)
-            
-            # NUEVO: Reportar éxito al ProxyManager
-            if proxy_manager and current_proxy:
-                proxy_manager.report_success(current_proxy)
-            
+    try:
+        # Obtener transcripción
+        if language_code:
+            logger.info(f"Requesting subtitles in language: {language_code}")
+            transcript = youtube_api.get_transcript(
+                video_id, 
+                languages=[language_code]
+            )
+        else:
+            logger.info("Requesting subtitles in default language")
+            transcript = youtube_api.get_transcript(video_id)
+        
+        # Calcular duración total
+        total_duration = 0
+        if transcript:
+            last_item = transcript[-1]
+            total_duration = last_item['start'] + last_item.get('duration', 0)
+        
+        return {
+            'video_id': video_id,
+            'subtitles': transcript,
+            'subtitle_count': len(transcript),
+            'language_code': language_code,
+            'total_duration': round(total_duration, 2),
+            'proxy_used': use_proxy
+        }
+        
+    except YouTubeRequestFailed as e:
+        error_msg = str(e)
+        if "429" in error_msg or "Too Many Requests" in error_msg:
+            logger.error(f"Rate limited: {error_msg}")
             return {
-                'video_id': video_id,
-                'subtitles': transcript,
-                'subtitle_count': len(transcript),
-                'language_code': language_code,
-                'total_duration': round(total_duration, 2),
-                'proxy_used': bool(proxies),
-                'attempts': attempt + 1
+                'error': 'Too many requests - rate limited by YouTube',
+                'details': error_msg,
+                'proxy_used': use_proxy
+            }
+        else:
+            return {
+                'error': f'YouTube request failed: {type(e).__name__}',
+                'details': error_msg,
+                'proxy_used': use_proxy
             }
             
-        except YouTubeRequestFailed as e:
-            if "429" in str(e) or "Too Many Requests" in str(e):
-                print(f"Rate limited on attempt {attempt + 1}")
-                
-                # NUEVO: Reportar rate limit al ProxyManager
-                if proxy_manager and current_proxy:
-                    proxy_manager.report_failure(current_proxy, is_rate_limit=True)
-                elif current_proxy:
-                    # Método antiguo
-                    failed_proxies.append(current_proxy)
-                    print(f"Marked proxy {current_proxy} as failed")
-                
-                if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 2
-                    print(f"Waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
-                else:
-                    return {
-                        'error': 'Too many failed attempts',
-                        'details': str(e),
-                        'proxy_used': bool(proxies),
-                        'attempts': attempt + 1
-                    }
-            else:
-                # NUEVO: Reportar fallo general al ProxyManager
-                if proxy_manager and current_proxy:
-                    proxy_manager.report_failure(current_proxy, is_rate_limit=False)
-                
-                return {
-                    'error': f'YouTube request failed: {type(e).__name__}',
-                    'details': str(e),
-                    'proxy_used': bool(proxies)
-                }
-                
-        except TranscriptsDisabled:
-            return {'error': 'Subtitles are disabled for this video'}
-                
-        except NoTranscriptFound:
-            if language_code:
-                return {
-                    'error': f'No transcript found for language code: {language_code}',
-                    'suggestion': 'Try listing available languages first'
-                }
-            return {'error': 'No transcript found for this video'}
-            
-        except VideoUnavailable:
-            return {'error': 'Video is unavailable'}
-            
-        except Exception as e:
-            # NUEVO: Reportar fallo general
-            if proxy_manager and current_proxy:
-                proxy_manager.report_failure(current_proxy, is_rate_limit=False)
-                
+    except TranscriptsDisabled:
+        return {'error': 'Subtitles are disabled for this video'}
+        
+    except NoTranscriptFound:
+        if language_code:
             return {
-                'error': f'Unexpected error: {type(e).__name__}',
-                'details': str(e),
-                'proxy_used': bool(proxies)
+                'error': f'No transcript found for language code: {language_code}',
+                'suggestion': 'Try listing available languages first'
             }
+        return {'error': 'No transcript found for this video'}
+        
+    except VideoUnavailable:
+        return {'error': 'Video is unavailable'}
+        
+    except Exception as e:
+        logger.error(f"Unexpected error: {type(e).__name__}: {str(e)}")
+        return {
+            'error': f'Unexpected error: {type(e).__name__}',
+            'details': str(e),
+            'proxy_used': use_proxy
+        }

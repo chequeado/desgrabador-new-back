@@ -26,7 +26,7 @@ case "$1" in
     
     "test")
         echo "🧪 Running quick API test..."
-        docker compose exec web python tests/test_api.py
+        docker compose exec web python tests/test_simple_api.py
         ;;
     
     "test-full")
@@ -39,31 +39,35 @@ case "$1" in
         docker compose exec web pytest tests/ "${@:2}"
         ;;
     
-    "proxy-health")
-        echo "🏥 Running proxy health check (10 proxies)..."
-        docker compose exec web python tests/test_proxy_health.py
+    "stress")
+        echo "💪 Running stress test..."
+        shift  # Remove 'stress' from arguments
+        docker compose exec web python tests/test_stress.py "$@"
         ;;
     
-    "proxy-health-full")
-        echo "🏥 Running FULL proxy health check (25 proxies)..."
-        docker compose exec web python tests/test_proxy_health.py --full
+    "stress-quick")
+        echo "💪 Running quick stress test (25 requests, 5 workers)..."
+        docker compose exec web python tests/test_stress.py --requests 25 --workers 5
         ;;
     
-    "proxy-health-custom")
-        echo "🏥 Running custom proxy health check..."
-        echo "   Sample size: ${2:-10} proxies"
-        echo "   Workers: ${3:-5}"
-        docker compose exec web python tests/test_proxy_health.py --sample "${2:-10}" --workers "${3:-5}"
+    "stress-heavy")
+        echo "💪 Running heavy stress test (200 requests, 30 workers)..."
+        docker compose exec web python tests/test_stress.py --requests 200 --workers 30
+        ;;
+    
+    "stress-incremental")
+        echo "💪 Running incremental stress test..."
+        docker compose exec web python tests/test_stress.py --incremental
         ;;
     
     "test-all")
         echo "🧪 Running ALL tests..."
         echo -e "\n1. Quick test:"
-        docker compose exec web python tests/test_api.py
+        docker compose exec web python tests/test_simple_api.py
         echo -e "\n2. Integration test:"
         docker compose exec web python tests/nopytest_integ_test.py
-        echo -e "\n3. Pytest:"
-        docker compose exec web pytest tests/ -v
+        echo -e "\n3. Stress test (quick):"
+        docker compose exec web python tests/test_stress.py --requests 10 --workers 3
         ;;
     
     "rebuild")
@@ -91,16 +95,22 @@ case "$1" in
         echo "  test       - Run quick test"
         echo "  test-full  - Run integration test"
         echo "  pytest     - Run pytest (can add args)"
-        echo "  proxy-health      - Test proxy health (10 proxies)"
-        echo "  proxy-health-full - Test proxy health (25 proxies)"
-        echo "  proxy-health-custom - Test with custom params"
+        echo ""
+        echo "Stress Testing:"
+        echo "  stress              - Run stress test (pass custom args)"
+        echo "  stress-quick        - Quick stress test (25 req, 5 workers)"
+        echo "  stress-heavy        - Heavy stress test (200 req, 30 workers)"
+        echo "  stress-incremental  - Find breaking point incrementally"
+        echo ""
+        echo "Other:"
         echo "  test-all   - Run ALL tests"
         echo "  rebuild    - Rebuild containers"
         echo "  clean      - Remove everything"
         echo ""
         echo "Examples:"
-        echo "  ./docker-dev.sh pytest -v"
-        echo "  ./docker-dev.sh pytest -k health"
+        echo "  ./docker-dev.sh stress --requests 100 --workers 20"
+        echo "  ./docker-dev.sh stress --same-video --workers 50"
+        echo "  ./docker-dev.sh stress --incremental"
         echo ""
         ;;
 esac

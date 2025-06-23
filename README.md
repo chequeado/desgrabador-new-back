@@ -9,7 +9,7 @@ Una API REST robusta construida con Django para extraer subtítulos de videos de
 - Extrae subtítulos de cualquier video público de YouTube
 - Lista todos los idiomas disponibles para un video
 - Soporte para subtítulos manuales y auto-generados
-- Rotación de proxies para manejo de límites de tasa
+- Soporte integrado para proxies rotativos de Webshare
 - Entorno de desarrollo basado en Docker
 - Suite completa de pruebas
 
@@ -17,6 +17,7 @@ Una API REST robusta construida con Django para extraer subtítulos de videos de
 
 - Docker y Docker Compose
 - Python 3.11+ (si se ejecuta localmente)
+- Cuenta de Webshare con paquete "Residential" (opcional, para proxies)
 
 ## 🛠️ Inicio Rápido
 
@@ -64,10 +65,28 @@ Una API REST robusta construida con Django para extraer subtítulos de videos de
 | `SECRET_KEY` | Clave secreta de Django | - | Sí |
 | `DJANGO_ALLOWED_HOSTS` | Hosts permitidos | `localhost` | No |
 | `CORS_ALLOWED_ORIGINS` | Orígenes CORS | - | Sí |
-| `USE_PROXY` | Habilitar rotación de proxies | `False` | No |
+| `USE_PROXY` | Habilitar proxies de Webshare | `False` | No |
 | `WEBSHARE_PROXY_USERNAME` | Usuario del proxy | - | Si USE_PROXY=True |
 | `WEBSHARE_PROXY_PASSWORD` | Contraseña del proxy | - | Si USE_PROXY=True |
-| `WEBSHARE_API_TOKEN` | Token de webshare | - | Si USE_PROXY=True |
+
+### Configuración de Proxies con Webshare
+
+1. **Crear cuenta en Webshare**: https://www.webshare.io
+
+2. **Comprar paquete "Residential"** (NO comprar "Proxy Server" o "Static Residential")
+
+3. **Obtener credenciales**:
+   - Ir a Proxy Settings en tu dashboard de Webshare
+   - Copiar tu "Proxy Username" y "Proxy Password"
+
+4. **Configurar en .env**:
+   ```bash
+   USE_PROXY=True
+   WEBSHARE_PROXY_USERNAME=tu_usuario_aqui
+   WEBSHARE_PROXY_PASSWORD=tu_password_aqui
+   ```
+
+Con esta configuración, todos los requests a YouTube se harán automáticamente a través de proxies rotativos residenciales.
 
 ## 📡 Endpoints de la API
 
@@ -136,11 +155,9 @@ Content-Type: application/json
   "subtitle_count": 150,
   "language_code": "en",
   "total_duration": 300.5,
-  "proxy_used": false,
-  "attempts": 1
+  "proxy_used": false
 }
 ```
-
 
 ## 📖 Documentación Interactiva
 La API incluye documentación interactiva con Swagger UI:
@@ -148,28 +165,10 @@ La API incluye documentación interactiva con Swagger UI:
 Swagger UI: http://localhost:8000/swagger/
 
 Desde Swagger puedes:
-
-Ver todos los endpoints disponibles
-Probar las llamadas directamente desde el navegador
-Ver ejemplos de requests y responses
-Descargar la especificación OpenAPI
-
-## 🌐 Soporte de Proxies
-La API incluye un sistema avanzado de gestión de proxies para evitar límites de tasa:
-
-Rotación inteligente con algoritmo LRU
-+215,000 proxies residenciales disponibles
-Blacklist temporal automática
-Recuperación automática de proxies fallidos
-
-Para más detalles sobre la implementación, ver PROXY_MANAGER.md.
-Configuración básica:
-bashUSE_PROXY=True
-WEBSHARE_API_TOKEN=tu_token_aqui
-Monitoreo de salud:
-bash# Test rápido de proxies
-./docker-dev.sh proxy-health
-
+- Ver todos los endpoints disponibles
+- Probar las llamadas directamente desde el navegador
+- Ver ejemplos de requests y responses
+- Descargar la especificación OpenAPI
 
 ## 🧪 Pruebas
 
@@ -187,16 +186,6 @@ bash# Test rápido de proxies
 ```bash
 ./docker-dev.sh test-full
 ```
-
-### Pruebas de Salud de Proxies
-```bash
-./docker-dev.sh proxy-health # 10 proxies
-
-./docker-dev.sh proxy-health-full # 25 proxies
-
-./docker-dev.sh proxy-health-custom [number of proxies] [number of workers to test] # custom proxies
-```
-
 
 ## 🐳 Comandos Docker
 
@@ -216,7 +205,7 @@ El proyecto incluye un script auxiliar `docker-dev.sh`:
 
 **Límite de tasa (errores 429)**
 - Habilitar soporte de proxy configurando `USE_PROXY=True`
-- Agregar credenciales válidas de proxy
+- Asegurarse de tener credenciales válidas de Webshare
 
 **Contenedor no encontrado**
 - Asegurarse de que Docker esté ejecutándose
@@ -226,7 +215,7 @@ El proyecto incluye un script auxiliar `docker-dev.sh`:
 - Reconstruir el contenedor: `./docker-dev.sh rebuild`
 
 **Subtítulos no disponibles (aunque existan)**
-- Posiblemente baneo de IP de Youtube, usar proxies.
+- Posiblemente baneo de IP de Youtube, usar proxies
 
 ## 📞 Soporte
 

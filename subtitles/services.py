@@ -1,3 +1,4 @@
+# subtitles/services.py - Enhanced with debugging
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     TranscriptsDisabled,
@@ -9,10 +10,51 @@ from youtube_transcript_api.proxies import WebshareProxyConfig
 import re
 import os
 import logging
+import requests
 
 logger = logging.getLogger('subtitles')
 
-# Inicializar YouTubeTranscriptApi con o sin proxies según configuración
+def test_proxy_connectivity():
+    """Test if proxies are working correctly"""
+    username = os.getenv('WEBSHARE_PROXY_USERNAME')
+    password = os.getenv('WEBSHARE_PROXY_PASSWORD')
+    
+    if not username or not password:
+        return {"error": "Proxy credentials not found"}
+    
+    # Test with a simple HTTP request through the proxy
+    proxy_url = f"http://{username}:{password}@rotating-residential.webshare.io:9000"
+    
+    proxies = {
+        'http': proxy_url,
+        'https': proxy_url
+    }
+    
+    try:
+        # Test with a simple request
+        response = requests.get(
+            'http://httpbin.org/ip', 
+            proxies=proxies, 
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "success": True,
+                "proxy_ip": data.get('origin'),
+                "message": "Proxy connectivity test successful"
+            }
+        else:
+            return {
+                "error": f"Proxy test failed with status: {response.status_code}"
+            }
+            
+    except Exception as e:
+        return {
+            "error": f"Proxy connectivity test failed: {str(e)}"
+        }
+
 def get_youtube_api():
     """
     Obtiene una instancia de YouTubeTranscriptApi configurada según USE_PROXY
@@ -25,7 +67,17 @@ def get_youtube_api():
             logger.error("USE_PROXY=True but WEBSHARE_PROXY_USERNAME or WEBSHARE_PROXY_PASSWORD not set")
             raise ValueError("Proxy credentials missing. Set WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD")
         
+        # Test proxy connectivity first
+        proxy_test = test_proxy_connectivity()
+        if "error" in proxy_test:
+            logger.error(f"Proxy connectivity test failed: {proxy_test['error']}")
+            # Continue anyway but log the issue
+        else:
+            logger.info(f"Proxy test successful - using IP: {proxy_test.get('proxy_ip')}")
+        
         logger.info("Using Webshare proxies")
+        logger.info(f"Username: {username[:5]}***")  # Log partial username for debugging
+        
         return YouTubeTranscriptApi(
             proxy_config=WebshareProxyConfig(
                 proxy_username=username,

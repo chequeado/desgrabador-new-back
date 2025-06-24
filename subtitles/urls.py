@@ -4,7 +4,6 @@ from . import views
 
 urlpatterns = [
     path('health/', views.health_check, name='health_check'),
-    path('debug/', views.debug_environment, name='debug_environment'),  # New debug endpoint
     path('languages/', views.get_languages_view, name='get_languages'),
     path('extract/', views.get_subtitles_view, name='get_subtitles'),
 ]

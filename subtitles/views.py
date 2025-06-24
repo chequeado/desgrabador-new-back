@@ -12,60 +12,6 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .services import get_subtitles, extract_video_id, get_available_languages, test_proxy_connectivity
 import os
-import requests
-import socket
-
-@swagger_auto_schema(
-    method='get',
-    operation_description="Debug endpoint to test proxy connectivity and environment",
-    responses={200: "Debug information"}
-)
-@api_view(['GET'])
-def debug_environment(request):
-    """Debug endpoint to check environment and proxy configuration"""
-    
-    debug_info = {
-        'environment': {
-            'USE_PROXY': os.getenv('USE_PROXY'),
-            'proxy_username_set': bool(os.getenv('WEBSHARE_PROXY_USERNAME')),
-            'proxy_password_set': bool(os.getenv('WEBSHARE_PROXY_PASSWORD')),
-            'server_hostname': socket.gethostname(),
-        },
-        'network_tests': {}
-    }
-    
-    # Test 1: Basic connectivity
-    try:
-        response = requests.get('http://httpbin.org/ip', timeout=5)
-        debug_info['network_tests']['basic_connectivity'] = {
-            'success': True,
-            'server_ip': response.json().get('origin'),
-            'status_code': response.status_code
-        }
-    except Exception as e:
-        debug_info['network_tests']['basic_connectivity'] = {
-            'success': False,
-            'error': str(e)
-        }
-    
-    # Test 2: Proxy connectivity (if enabled)
-    if os.getenv('USE_PROXY') == 'True':
-        debug_info['network_tests']['proxy_connectivity'] = test_proxy_connectivity()
-    
-    # Test 3: YouTube connectivity
-    try:
-        response = requests.get('https://www.youtube.com', timeout=10)
-        debug_info['network_tests']['youtube_connectivity'] = {
-            'success': response.status_code == 200,
-            'status_code': response.status_code
-        }
-    except Exception as e:
-        debug_info['network_tests']['youtube_connectivity'] = {
-            'success': False,
-            'error': str(e)
-        }
-    
-    return Response(debug_info)
 
 # Add to your existing health_check function
 @swagger_auto_schema(

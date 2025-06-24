@@ -1,4 +1,4 @@
-# subtitles/services.py - Enhanced with debugging
+# subtitles/services.py - Updated with current API methods
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     TranscriptsDisabled,
@@ -104,6 +104,7 @@ def extract_video_id(url):
 def get_available_languages(video_url):
     """
     Lista todos los idiomas disponibles para un video
+    UPDATED: Uses new API method list() instead of list_transcripts()
     """
     video_id = extract_video_id(video_url)
     if not video_id:
@@ -112,7 +113,8 @@ def get_available_languages(video_url):
     use_proxy = os.getenv('USE_PROXY', 'False') == 'True'
     
     try:
-        transcript_list = youtube_api.list_transcripts(video_id)
+        # UPDATED: Use new API method
+        transcript_list = youtube_api.list(video_id)
         
         languages = []
         for transcript in transcript_list:
@@ -147,6 +149,7 @@ def get_available_languages(video_url):
 def get_subtitles(video_url, language_code=None):
     """
     Obtiene los subtítulos de un video de YouTube
+    UPDATED: Uses new API method fetch() instead of get_transcript()
     """
     video_id = extract_video_id(video_url)
     if not video_id:
@@ -156,28 +159,33 @@ def get_subtitles(video_url, language_code=None):
     logger.info(f"Getting subtitles for video {video_id}, proxy enabled: {use_proxy}")
     
     try:
-        # Obtener transcripción
+        # UPDATED: Use new API method fetch() instead of get_transcript()
         if language_code:
             logger.info(f"Requesting subtitles in language: {language_code}")
-            transcript = youtube_api.get_transcript(
+            # Use the newer fetch method with languages parameter
+            fetched_transcript = youtube_api.fetch(
                 video_id, 
                 languages=[language_code]
             )
         else:
             logger.info("Requesting subtitles in default language")
-            transcript = youtube_api.get_transcript(video_id)
+            fetched_transcript = youtube_api.fetch(video_id)
+        
+        # UPDATED: Convert FetchedTranscript to raw data format
+        # The new API returns a FetchedTranscript object, not a list
+        transcript_data = fetched_transcript.to_raw_data()
         
         # Calcular duración total
         total_duration = 0
-        if transcript:
-            last_item = transcript[-1]
+        if transcript_data:
+            last_item = transcript_data[-1]
             total_duration = last_item['start'] + last_item.get('duration', 0)
         
         return {
             'video_id': video_id,
-            'subtitles': transcript,
-            'subtitle_count': len(transcript),
-            'language_code': language_code,
+            'subtitles': transcript_data,  # Now using raw data format
+            'subtitle_count': len(transcript_data),
+            'language_code': fetched_transcript.language_code,  # Get from FetchedTranscript object
             'total_duration': round(total_duration, 2),
             'proxy_used': use_proxy
         }

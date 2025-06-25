@@ -6,7 +6,7 @@ case "$1" in
     "start")
         echo "🚀 Starting containers..."
         docker compose up -d
-        echo "✅ Backend running at http://localhost:8000"
+        echo "✅ Backend running at http://localhost:7070"
         ;;
     
     "stop")

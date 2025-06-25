@@ -3,14 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from .services import get_subtitles, extract_video_id, get_available_languages
-# subtitles/views.py - Add debug endpoints
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from .services import get_subtitles, extract_video_id, get_available_languages, test_proxy_connectivity
+from .turnstile import require_turnstile 
 import os
 
 # Add to your existing health_check function
@@ -88,6 +82,7 @@ languages_response = openapi.Response(
     operation_description="Get all available subtitle languages for a YouTube video"
 )
 @api_view(['POST'])
+@require_turnstile
 def get_languages_view(request):
     """Obtiene todos los idiomas disponibles para un video"""
     video_url = request.data.get('url')
@@ -105,7 +100,6 @@ def get_languages_view(request):
     
     return Response(result)
 
-# Esquema de request para extract
 extract_request = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     required=['url'],
@@ -152,6 +146,7 @@ extract_request = openapi.Schema(
     operation_description="Extract subtitles from a YouTube video in the specified language"
 )
 @api_view(['POST'])
+@require_turnstile 
 def get_subtitles_view(request):
     """Obtiene los subtítulos en el idioma especificado"""
     video_url = request.data.get('url')

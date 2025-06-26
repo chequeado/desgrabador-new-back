@@ -6,6 +6,61 @@ from drf_yasg import openapi
 from .services import get_subtitles, extract_video_id, get_available_languages, test_proxy_connectivity
 from .turnstile import require_turnstile 
 import os
+import json
+import time
+import hashlib
+import hmac
+
+# Token de sesión temporal (válido por 5 minutos)
+SESSION_TOKEN_DURATION = 300  # segundos
+
+def generate_session_token(video_id):
+    """Genera un token de sesión temporal para un video específico"""
+    secret_key = os.getenv('SECRET_KEY', 'django-secret-key')
+    timestamp = str(int(time.time()))
+    
+    # Crear un token que incluya video_id y timestamp
+    message = f"{video_id}:{timestamp}"
+    signature = hmac.new(
+        secret_key.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    return f"{message}:{signature}"
+
+def validate_session_token(token, video_id):
+    """Valida un token de sesión"""
+    try:
+        parts = token.split(':')
+        if len(parts) != 3:
+            return False
+            
+        token_video_id, timestamp, signature = parts
+        
+        # Verificar que el video_id coincida
+        if token_video_id != video_id:
+            return False
+            
+        # Verificar que no haya expirado
+        token_time = int(timestamp)
+        current_time = int(time.time())
+        if current_time - token_time > SESSION_TOKEN_DURATION:
+            return False
+            
+        # Verificar la firma
+        secret_key = os.getenv('SECRET_KEY', 'django-secret-key')
+        message = f"{token_video_id}:{timestamp}"
+        expected_signature = hmac.new(
+            secret_key.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return hmac.compare_digest(signature, expected_signature)
+        
+    except Exception:
+        return False
 
 # Add to your existing health_check function
 @swagger_auto_schema(
@@ -67,7 +122,8 @@ languages_response = openapi.Response(
                 }
             ],
             "total": 5,
-            "proxy_used": False
+            "proxy_used": False,
+            "session_token": "video_id:timestamp:signature"  # NUEVO
         }
     }
 )
@@ -82,7 +138,7 @@ languages_response = openapi.Response(
     operation_description="Get all available subtitle languages for a YouTube video"
 )
 @api_view(['POST'])
-@require_turnstile
+@require_turnstile  # Solo aquí se valida Turnstile
 def get_languages_view(request):
     """Obtiene todos los idiomas disponibles para un video"""
     video_url = request.data.get('url')
@@ -97,6 +153,10 @@ def get_languages_view(request):
     
     if 'error' in result:
         return Response(result, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Generar token de sesión para este video
+    session_token = generate_session_token(result['video_id'])
+    result['session_token'] = session_token
     
     return Response(result)
 
@@ -146,17 +206,37 @@ extract_request = openapi.Schema(
     operation_description="Extract subtitles from a YouTube video in the specified language"
 )
 @api_view(['POST'])
-@require_turnstile 
 def get_subtitles_view(request):
     """Obtiene los subtítulos en el idioma especificado"""
     video_url = request.data.get('url')
-    language_code = request.data.get('language_code')  # Opcional
+    language_code = request.data.get('language_code')
     
     if not video_url:
         return Response(
             {'error': 'URL is required'}, 
             status=status.HTTP_400_BAD_REQUEST
         )
+    
+    # Extraer video_id para validación
+    video_id = extract_video_id(video_url)
+    if not video_id:
+        return Response(
+            {'error': 'Invalid YouTube URL'}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Verificar token de sesión
+    session_token = request.headers.get('X-Session-Token')
+    
+    if not session_token or not validate_session_token(session_token, video_id):
+        # Si no hay token de sesión válido, verificar Turnstile
+        if os.getenv('TURNSTILE_ENABLED', 'True') == 'True':
+            turnstile_token = request.headers.get('X-Turnstile-Token')
+            if not turnstile_token:
+                return Response({
+                    'error': 'Session expired. Please reload the video.',
+                    'code': 'session_expired'
+                }, status=status.HTTP_403)
     
     # Llamar al servicio con el código de idioma si se proporciona
     result = get_subtitles(video_url, language_code)

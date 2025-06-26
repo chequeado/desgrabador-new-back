@@ -1,19 +1,25 @@
 FROM python:3.11-slim
 
-WORKDIR /app
-
+# Variables de entorno
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Crear carpeta de trabajo
+WORKDIR /app
 
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependencias Python
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install gunicorn
 
+# Copiar el resto del proyecto
 COPY . .
 
-EXPOSE 8000
+# Exponer puerto que usará gunicorn (Cloud Run lo inyecta por $PORT)
+EXPOSE 8080
 
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Comando final
+CMD exec gunicorn tu_app.wsgi:application --bind 0.0.0.0:$PORT --workers 3
